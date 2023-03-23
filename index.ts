@@ -41,9 +41,39 @@ async function createEntityFiles(entityClasses: string[]) {
   }
 }
 
+async function createChatCompletionWithRetry(
+  messages: ChatCompletionRequestMessage[],
+  temperature: number
+) {
+  const maxRetries = 5;
+
+  for (let retries = 0; retries < maxRetries; retries++) {
+    try {
+      const completions = await openai.createChatCompletion(
+        {
+          model: "gpt-3.5-turbo",
+          messages: messages,
+          temperature: temperature,
+        },
+        {
+          timeout: 120000 * 1,
+          maxBodyLength: 8192 * 40,
+        }
+      );
+
+      return completions;
+    } catch (error: any) {
+      if (error.message.includes("timeout") && retries < maxRetries - 1) {
+        console.log(`시간초과 에러 발생, 재시도: ${retries + 1}`);
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
 async function getDatabaseSchemaFromGPT(pdfText: string): Promise<string> {
   const MAX_CHUNK_SIZE = 2000;
-  const CONTINUATION_TEXT = "계속";
   let currentText = pdfText;
   let result = "";
 
@@ -71,23 +101,21 @@ async function getDatabaseSchemaFromGPT(pdfText: string): Promise<string> {
       chatMessages.push({ role: "user", content: chunk });
     }
 
-    const completions = await openai.createChatCompletion(
-      {
-        model: "gpt-3.5-turbo",
-        messages: chatMessages,
-        temperature: 0.7,
-      },
-      {
-        timeout: 120000 * 4,
-        maxBodyLength: 8192 * 40,
-      }
-    );
+    try {
+      const completions = await createChatCompletionWithRetry(
+        chatMessages,
+        0.7
+      );
 
-    if (isFinal) {
-      result = completions?.data?.choices[0]?.message?.content as string;
-      break;
-    } else {
-      currentText = currentText.slice(MAX_CHUNK_SIZE);
+      if (isFinal) {
+        result = completions?.data?.choices[0]?.message?.content as string;
+        break;
+      } else {
+        currentText = currentText.slice(MAX_CHUNK_SIZE);
+      }
+    } catch (error) {
+      console.error("Error while trying to create chat completion:", error);
+      throw error;
     }
   }
 
