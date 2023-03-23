@@ -17,6 +17,10 @@ function ensureSrcFolderExists(): void {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function createEntityFiles(entityClasses: string[]) {
   const entitiesPath = "./src/entities";
   if (!fs.existsSync(entitiesPath)) {
@@ -58,6 +62,7 @@ async function getDatabaseSchemaFromGPT(pdfText: string): Promise<string> {
       });
       chatMessages.push({ role: "user", content: chunk });
     } else {
+      await sleep(1000);
       chatMessages.push({
         role: "system",
         content:
