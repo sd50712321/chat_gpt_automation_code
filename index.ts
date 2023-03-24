@@ -21,7 +21,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function createEntityFiles(entityClasses: string[]) {
+export async function createEntityFiles(entityClasses: string[]) {
   const entitiesPath = "./src/entities";
   if (!fs.existsSync(entitiesPath)) {
     fs.mkdirSync(entitiesPath, { recursive: true });
@@ -41,7 +41,7 @@ async function createEntityFiles(entityClasses: string[]) {
   }
 }
 
-async function createChatCompletionWithRetry(
+export async function createChatCompletionWithRetry(
   messages: ChatCompletionRequestMessage[],
   temperature: number
 ) {
@@ -72,18 +72,23 @@ async function createChatCompletionWithRetry(
   }
 }
 
-async function getDatabaseSchemaFromGPT(pdfText: string): Promise<string> {
+export async function getDatabaseSchemaFromGPT(
+  pdfText: string
+): Promise<string> {
   const MAX_CHUNK_SIZE = 2000;
   let currentText = pdfText;
   let result = "";
 
+  // 테스트용 변수
   while (true) {
     const isFinal = currentText.length <= MAX_CHUNK_SIZE;
     const chunk = isFinal ? currentText : currentText.slice(0, MAX_CHUNK_SIZE);
-    console.log("isFinal", isFinal);
-    console.log("chunk", chunk);
+    // console.log("isFinal", isFinal);
+    // console.log("chunk", chunk);
 
     let chatMessages: Array<ChatCompletionRequestMessage> = [];
+
+    // 테스트용 변수 i
     if (isFinal) {
       chatMessages.push({
         role: "system",
@@ -107,6 +112,7 @@ async function getDatabaseSchemaFromGPT(pdfText: string): Promise<string> {
         0.7
       );
 
+      // 테스트용 변수 i
       if (isFinal) {
         result = completions?.data?.choices[0]?.message?.content as string;
         break;
@@ -122,7 +128,7 @@ async function getDatabaseSchemaFromGPT(pdfText: string): Promise<string> {
   return result;
 }
 
-async function extractPdfText(filePath: string): Promise<string> {
+export async function extractPdfText(filePath: string): Promise<string> {
   try {
     const pdfBuffer: Buffer = fs.readFileSync(filePath);
     const data = await pdfParse(pdfBuffer);
@@ -145,12 +151,13 @@ async function extractPdfText(filePath: string): Promise<string> {
   }
 }
 
-async function generateNestJsEntityFromSQL(sql: string): Promise<string> {
+export async function generateNestJsEntityFromSQL(
+  sql: string
+): Promise<string> {
   const chatMessages: Array<ChatCompletionRequestMessage> = [
     {
       role: "system",
-      content:
-        "As an AI language model, I will analyze the given SQL schema and generate corresponding NestJS entity classes for each table in the schema, including relationship configurations and indexes. Please provide the SQL schema.",
+      content: "Generate NestJS entity classes for the following SQL schema:",
     },
     { role: "user", content: sql },
   ];
@@ -167,7 +174,9 @@ async function generateNestJsEntityFromSQL(sql: string): Promise<string> {
   return completions?.data?.choices[0]?.message?.content as string;
 }
 
-async function createEntityFilesInSrcFolder(entities: string): Promise<void> {
+export async function createEntityFilesInSrcFolder(
+  entities: string
+): Promise<void> {
   ensureSrcFolderExists();
 
   const entityPattern = /export class (\w+) extends BaseEntity/;
@@ -184,7 +193,7 @@ async function createEntityFilesInSrcFolder(entities: string): Promise<void> {
   }
 }
 
-async function main() {
+export async function main() {
   // 사용 예시:
   try {
     const filePath = "./plan.pdf";
@@ -193,8 +202,19 @@ async function main() {
     const databaseSchema = await getDatabaseSchemaFromGPT(pdfText);
     // console.log("Generated database schema:\n", databaseSchema);
     const nestJsEntities = await generateNestJsEntityFromSQL(databaseSchema);
-    console.log("nestJsEntities", nestJsEntities);
-    await createEntityFilesInSrcFolder(nestJsEntities);
+    console.log("Generated NestJS entity classes:\n", nestJsEntities);
+    // 올바른 NestJS 엔티티 클래스를 추출합니다.
+    const entityClasses = nestJsEntities.match(
+      /import {[^}]+} from[^;]+;\n\n@Entity\(\)[\s\S]+?\n}/g
+    );
+
+    if (!entityClasses) {
+      throw new Error(
+        "Failed to extract entity classes from the generated NestJS entities."
+      );
+    }
+
+    await createEntityFiles(entityClasses);
   } catch (err: any) {
     console.error("err", err);
     console.error("err.data", err?.response?.data as any);
@@ -204,11 +224,11 @@ async function main() {
 main();
 
 // 사용 예시:
-const filePath = "./plan.pdf";
-extractPdfText(filePath)
-  .then((text) => {
-    console.log(text);
-  })
-  .catch((error) => {
-    console.error("Error while processing PDF:", error);
-  });
+// const filePath = "./sample.pdf";
+// extractPdfText(filePath)
+//   .then((text) => {
+//     console.log(text);
+//   })
+//   .catch((error) => {
+//     console.error("Error while processing PDF:", error);
+//   });
