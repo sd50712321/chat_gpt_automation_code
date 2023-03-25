@@ -1,8 +1,14 @@
 import fs from "fs";
 import * as path from "path";
 import pdfParse from "pdf-parse";
-import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
+import {
+  ChatCompletionRequestMessage,
+  Configuration,
+  CreateChatCompletionResponse,
+  OpenAIApi,
+} from "openai";
 import dotenv from "dotenv";
+import { AxiosResponse } from "axios";
 dotenv.config();
 
 const configuration = new Configuration({
@@ -44,7 +50,7 @@ export async function createEntityFiles(entityClasses: string[]) {
 export async function createChatCompletionWithRetry(
   messages: ChatCompletionRequestMessage[],
   temperature: number
-) {
+): Promise<AxiosResponse<CreateChatCompletionResponse, any>> {
   const maxRetries = 5;
 
   for (let retries = 0; retries < maxRetries; retries++) {
@@ -79,16 +85,12 @@ export async function getDatabaseSchemaFromGPT(
   let currentText = pdfText;
   let result = "";
 
-  // 테스트용 변수
-  while (true) {
+  while (currentText.length > 0) {
     const isFinal = currentText.length <= MAX_CHUNK_SIZE;
     const chunk = isFinal ? currentText : currentText.slice(0, MAX_CHUNK_SIZE);
-    // console.log("isFinal", isFinal);
-    // console.log("chunk", chunk);
 
     let chatMessages: Array<ChatCompletionRequestMessage> = [];
 
-    // 테스트용 변수 i
     if (isFinal) {
       chatMessages.push({
         role: "system",
@@ -112,7 +114,6 @@ export async function getDatabaseSchemaFromGPT(
         0.7
       );
 
-      // 테스트용 변수 i
       if (isFinal) {
         result = completions?.data?.choices[0]?.message?.content as string;
         break;
@@ -138,7 +139,7 @@ export async function extractPdfText(filePath: string): Promise<string> {
 
     // 페이지별 텍스트 추출
     for (let i = 1; i <= totalPages; i++) {
-      const pageText = await data.text.replace(/(\r\n|\n|\r)/gm, " ").trim();
+      const pageText = data.text.replace(/(\r\n|\n|\r)/gm, " ").trim();
       extractedText += `Page ${i}: ${pageText}\n\n`;
     }
 
@@ -193,7 +194,7 @@ export async function createEntityFilesInSrcFolder(
   }
 }
 
-export async function main() {
+async function main() {
   // 사용 예시:
   try {
     const filePath = "./plan.pdf";
@@ -221,7 +222,9 @@ export async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
 
 // 사용 예시:
 // const filePath = "./sample.pdf";
