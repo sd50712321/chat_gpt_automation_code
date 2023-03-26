@@ -27,8 +27,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function createEntityFiles(entityClasses: string[]) {
-  const entitiesPath = "./src/entities";
+export async function createEntityFiles(
+  entityClasses: string[],
+  entitiesPath: string = "./src/entities"
+) {
   if (!fs.existsSync(entitiesPath)) {
     fs.mkdirSync(entitiesPath, { recursive: true });
   }
@@ -143,8 +145,6 @@ export async function extractPdfText(filePath: string): Promise<string> {
       extractedText += `Page ${i}: ${pageText}\n\n`;
     }
 
-    // const exampleText = process.env.EXAMPLE_TEXT as string;
-    // return exampleText;
     return extractedText;
   } catch (error) {
     console.error("Error while extracting text from PDF:", error);
@@ -225,13 +225,3 @@ async function main() {
 if (require.main === module) {
   main();
 }
-
-// 사용 예시:
-// const filePath = "./sample.pdf";
-// extractPdfText(filePath)
-//   .then((text) => {
-//     console.log(text);
-//   })
-//   .catch((error) => {
-//     console.error("Error while processing PDF:", error);
-//   });
