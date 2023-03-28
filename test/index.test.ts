@@ -12,11 +12,11 @@ import {
   CreateChatCompletionResponse,
   OpenAIApi,
 } from "openai";
-import { AxiosResponse } from "axios";
 import { Result } from "pdf-parse";
-// import  from "pdf-parse";
 import * as pdfParse from "pdf-parse";
-// import { Result } from "pdf-parse";
+class MockOpenAIApi extends OpenAIApi {
+  createChatCompletion = jest.fn();
+}
 jest.mock("openai", () => ({
   OpenAIApi: jest.fn().mockImplementation(() => ({
     createChatCompletion: jest.fn().mockImplementation(() => {
@@ -48,6 +48,7 @@ jest.mock("pdf-parse");
 jest.mock("fs");
 
 describe("main 로직 테스트", () => {
+  const mockOpenAIApi = new MockOpenAIApi();
   beforeEach(() => {});
 
   afterEach(() => {
@@ -161,6 +162,50 @@ describe("main 로직 테스트", () => {
       expect(completions?.data.choices).toBeTruthy();
       expect(completions?.data.choices.length).toBeGreaterThan(0);
       expect(completions?.data?.choices[0]?.message?.content).toBeTruthy();
+    });
+
+    it("3번 타임아웃 후 정상 성공", async () => {
+      const messages: ChatCompletionRequestMessage[] = [
+        {
+          role: "system",
+          content: "Hello, AI. Please respond to this message.",
+        },
+        {
+          role: "user",
+          content: "Hello!",
+        },
+      ];
+
+      // Fail 3 times
+      mockOpenAIApi.createChatCompletion
+        .mockRejectedValueOnce(new Error("Request timeout"))
+        .mockRejectedValueOnce(new Error("Request timeout"))
+        .mockRejectedValueOnce(new Error("Request timeout"))
+        // Then succeed
+        .mockResolvedValueOnce({
+          data: {
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content: "Hello, I'm here to help!",
+                },
+              },
+            ],
+          },
+        });
+
+      // Pass the mocked OpenAIApi instance to the function
+      const completions = await createChatCompletionWithRetry(
+        messages,
+        0.7,
+        mockOpenAIApi
+      );
+      expect(completions).toBeTruthy();
+      expect(completions?.data).toBeTruthy();
+      expect(completions?.data.choices).toBeTruthy();
+      expect(completions?.data.choices.length).toBeGreaterThan(0);
+      expect(completions?.data.choices[0].message.content).toBeTruthy();
     });
   });
 });

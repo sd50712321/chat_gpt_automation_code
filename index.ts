@@ -51,13 +51,14 @@ export async function createEntityFiles(
 
 export async function createChatCompletionWithRetry(
   messages: ChatCompletionRequestMessage[],
-  temperature: number
+  temperature: number,
+  openAi: OpenAIApi = new OpenAIApi() // 이 부분을 수정하여 openai 인스턴스를 받도록 합니다.
 ): Promise<AxiosResponse<CreateChatCompletionResponse, any>> {
   const maxRetries = 5;
 
   for (let retries = 0; retries < maxRetries; retries++) {
     try {
-      const completions = await openai.createChatCompletion(
+      const completions = await openAi.createChatCompletion(
         {
           model: "gpt-3.5-turbo",
           messages: messages,
