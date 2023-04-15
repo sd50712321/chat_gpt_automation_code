@@ -9,6 +9,7 @@ import {
 } from "openai";
 import dotenv from "dotenv";
 import { AxiosResponse } from "axios";
+import { v4 as uuidv4 } from "uuid";
 dotenv.config();
 
 const configuration = new Configuration({
@@ -52,7 +53,7 @@ export async function createEntityFiles(
 export async function createChatCompletionWithRetry(
   messages: ChatCompletionRequestMessage[],
   temperature: number,
-  openAi: OpenAIApi = new OpenAIApi() // 이 부분을 수정하여 openai 인스턴스를 받도록 합니다.
+  openAi: OpenAIApi = openai
 ): Promise<AxiosResponse<CreateChatCompletionResponse, any>> {
   const maxRetries = 5;
 
@@ -81,55 +82,124 @@ export async function createChatCompletionWithRetry(
   }
 }
 
+// export async function getDatabaseSchemaFromGPT(
+//   pdfText: string
+// ): Promise<string> {
+//   const MAX_CHUNK_SIZE = 2000;
+//   let currentText = pdfText;
+//   let result = "";
+
+//   while (currentText.length > 0) {
+//     const isFinal = currentText.length <= MAX_CHUNK_SIZE;
+//     const chunk = isFinal ? currentText : currentText.slice(0, MAX_CHUNK_SIZE);
+
+//     let chatMessages: Array<ChatCompletionRequestMessage> = [];
+
+//     if (isFinal) {
+//       chatMessages.push({
+//         role: "system",
+//         content:
+//           "As an AI language model, I will analyze the given PDF document text and generate a database schema based on the information provided in the text. Please provide the text from the PDF document.",
+//       });
+//       chatMessages.push({ role: "user", content: chunk });
+//     } else {
+//       await sleep(1000);
+//       chatMessages.push({
+//         role: "system",
+//         content:
+//           "As an AI language model, I will remember the text provided and continue analyzing when the rest of the text is provided. If the text ends with '[CONTINUE]', please provide more text. Please respond as concisely and quickly as possible.",
+//       });
+//       chatMessages.push({ role: "user", content: chunk });
+//     }
+
+//     try {
+//       const completions = await createChatCompletionWithRetry(
+//         chatMessages,
+//         0.7
+//       );
+
+//       if (isFinal) {
+//         result = completions?.data?.choices[0]?.message?.content as string;
+//         break;
+//       } else {
+//         currentText = currentText.slice(MAX_CHUNK_SIZE);
+//       }
+//     } catch (error) {
+//       console.error("Error while trying to create chat completion:", error);
+//       throw error;
+//     }
+//   }
+
+//   return result;
+// }
 export async function getDatabaseSchemaFromGPT(
   pdfText: string
 ): Promise<string> {
-  const MAX_CHUNK_SIZE = 2000;
+  const MAX_CHUNK_SIZE = 4000;
   let currentText = pdfText;
-  let result = "";
+  console.log("pdfText", pdfText);
+  const totalPages = Math.ceil(currentText.length / MAX_CHUNK_SIZE);
+  console.log("totalPages", totalPages);
+  console.log("currentText", currentText);
 
-  while (currentText.length > 0) {
-    const isFinal = currentText.length <= MAX_CHUNK_SIZE;
-    const chunk = isFinal ? currentText : currentText.slice(0, MAX_CHUNK_SIZE);
-
+  const processPage = async (chunk: string): Promise<string> => {
     let chatMessages: Array<ChatCompletionRequestMessage> = [];
-
-    if (isFinal) {
-      chatMessages.push({
-        role: "system",
-        content:
-          "As an AI language model, I will analyze the given PDF document text and generate a database schema based on the information provided in the text. Please provide the text from the PDF document.",
-      });
-      chatMessages.push({ role: "user", content: chunk });
-    } else {
-      await sleep(1000);
-      chatMessages.push({
-        role: "system",
-        content:
-          "As an AI language model, I will remember the text provided and continue analyzing when the rest of the text is provided. If the text ends with '[CONTINUE]', please provide more text. Please respond as concisely and quickly as possible.",
-      });
-      chatMessages.push({ role: "user", content: chunk });
-    }
+    chatMessages.push({
+      role: "system",
+      content: `Based on the current text, refine and add to ${Math.ceil(
+        MAX_CHUNK_SIZE / totalPages
+      )} content or compress and summarize. in korean`,
+    });
+    chatMessages.push({ role: "user", content: chunk });
 
     try {
       const completions = await createChatCompletionWithRetry(
         chatMessages,
         0.7
       );
-
-      if (isFinal) {
-        result = completions?.data?.choices[0]?.message?.content as string;
-        break;
-      } else {
-        currentText = currentText.slice(MAX_CHUNK_SIZE);
-      }
+      return completions?.data?.choices[0]?.message?.content as string;
     } catch (error) {
       console.error("Error while trying to create chat completion:", error);
+      console.error(
+        "Error while trying to create chat completion:",
+        error.response.data
+      );
       throw error;
     }
-  }
+  };
 
-  return result;
+  const chunks = Array.from({ length: totalPages }, (_, i) => {
+    const chunkStart = i * MAX_CHUNK_SIZE;
+    const chunkEnd = (i + 1) * MAX_CHUNK_SIZE;
+    return currentText.slice(chunkStart, chunkEnd);
+  });
+
+  const summaries = await Promise.all(
+    chunks.map((chunk) => processPage(chunk))
+  );
+  const allSummaries = summaries.join(" ");
+  console.log("allSummaries", allSummaries);
+
+  let chatMessages: Array<ChatCompletionRequestMessage> = [];
+  chatMessages.push({
+    role: "system",
+    content: `Given the description of an online camping reservation platform which allows users to search and reserve camping spots based on various criteria, generate the SQL schema creation statements in the form of CREATE TABLE statements.
+    `,
+  });
+  chatMessages.push({ role: "user", content: allSummaries });
+
+  try {
+    const completions = await createChatCompletionWithRetry(chatMessages, 0.7);
+    console.log("completions?.data?.choices[0]", completions?.data?.choices[0]);
+    return completions?.data?.choices[0]?.message?.content as string;
+  } catch (error) {
+    console.error("Error while trying to create chat completion:", error);
+    console.error(
+      "Error while trying to create chat completion:",
+      error.response.data
+    );
+    throw error;
+  }
 }
 
 export async function extractPdfText(filePath: string): Promise<string> {
@@ -195,28 +265,185 @@ export async function createEntityFilesInSrcFolder(
   }
 }
 
+function copyRecursive(src, dest) {
+  if (fs.statSync(src).isDirectory()) {
+    if (!fs.existsSync(dest)) {
+      fs.mkdirSync(dest);
+    }
+    const files = fs.readdirSync(src);
+    for (const file of files) {
+      const srcPath = path.join(src, file);
+      const destPath = path.join(dest, file);
+      copyRecursive(srcPath, destPath);
+    }
+  } else {
+    fs.copyFileSync(src, dest);
+  }
+}
+
+export async function createCRUDFilesFromSQL(
+  sqlFilePath: string,
+  outputPath: string
+) {
+  // Read SQL file
+  const sqlContent = fs.readFileSync(sqlFilePath, "utf-8");
+  console.log("sqlContent", sqlContent);
+
+  // Read the index.js template file
+  const indexTemplatePath = path.join(
+    __dirname,
+    "api_src",
+    "server",
+    "models",
+    "index.js"
+  );
+  const indexTemplateContent = fs.readFileSync(indexTemplatePath, "utf-8");
+
+  // Create a new folder with the SQL file name without the .sql extension
+  // const folderName = path.basename(sqlFilePath, ".sql");
+  const newFolderPath = path.join("projects", outputPath);
+  if (!fs.existsSync(newFolderPath)) {
+    fs.mkdirSync(newFolderPath);
+  }
+
+  // Copy api_src folder to the new folder
+  const apiSrcPath = path.join(__dirname, "api_src");
+  copyRecursive(apiSrcPath, newFolderPath);
+  // fs.readdirSync(apiSrcPath).forEach((file) => {
+  //   fs.copyFileSync(
+  //     path.join(apiSrcPath, file),
+  //     path.join(newFolderPath, file)
+  //   );
+  // });
+
+  // Extract CREATE TABLE statements from SQL content
+  const createTableRegex =
+    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\S+?)`?\s*\((?:.|\s)+?\)(?:.|\s)*?(?=CREATE\s+TABLE|$)/gi;
+
+  const tableStatements = sqlContent.match(createTableRegex);
+  console.log("tableStatements", tableStatements);
+  if (!tableStatements || !Array.isArray(tableStatements)) {
+    console.error(
+      "No CREATE TABLE statements found in the provided SQL file or it is not iterable."
+    );
+    return;
+  }
+  console.log("tableStatements", tableStatements);
+
+  // Generate CRUD files for each table
+  const processingPromises = tableStatements.map((statement) =>
+    processTableStatement(statement, indexTemplateContent, newFolderPath)
+  );
+
+  await Promise.all(processingPromises);
+
+  console.log(`CRUD files generated in ${newFolderPath}`);
+}
+
+async function processTableStatement(
+  statement,
+  indexTemplateContent,
+  newFolderPath
+) {
+  const tableNameRegex = /CREATE TABLE `?(\w+)`?/i;
+  const tableNameMatch = statement.match(tableNameRegex);
+  if (tableNameMatch) {
+    const tableName = tableNameMatch[1];
+
+    // Generate CRUD content using GPT-4
+    const modelContent = await generateCRUDForTableWithGPT4(
+      tableName,
+      statement,
+      indexTemplateContent
+    );
+
+    // Extract the code block from the GPT-4 output
+    const codeBlockRegex = /```([\s\S]*?)```/g;
+    const codeBlockMatch = codeBlockRegex.exec(modelContent);
+    if (codeBlockMatch) {
+      const codeBlock = codeBlockMatch[1];
+
+      const modelFilePath = path.join(
+        newFolderPath,
+        "server",
+        "models",
+        `${tableName}.js`
+      );
+      fs.writeFileSync(modelFilePath, codeBlock);
+    } else {
+      console.error(
+        `Could not extract the code block from GPT-4 output for table ${tableName}`
+      );
+    }
+  }
+}
+
+async function generateCRUDForTableWithGPT4(
+  tableName: string,
+  tableSchema: string,
+  indexTemplate: string
+) {
+  // Prepare the chatMessages array
+  const chatMessages: ChatCompletionRequestMessage[] = [
+    {
+      role: "system",
+      content:
+        "As an AI language model, I will generate CRUD logic for a table based on the provided table schema and index template. Please provide the table name, table schema, and index template. Make sure to generate complete and detailed CRUD logic, considering the index template for optimized query statements and any necessary dynamic queries.",
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        tableName,
+        tableSchema,
+        indexTemplate,
+      }),
+    },
+  ];
+
+  // Send the chatMessages to GPT-4 and get the response
+  const completions = await createChatCompletionWithRetry(chatMessages, 0.7);
+  const generatedCRUD = completions?.data?.choices[0]?.message
+    ?.content as string;
+
+  // Return the generated CRUD logic
+  return generatedCRUD;
+}
+
 async function main() {
   // 사용 예시:
   try {
-    const filePath = "./plan.pdf";
+    const filePath = "./sample4.pdf";
     const pdfText = await extractPdfText(filePath);
     // ChatGPT를 사용하여 데이터베이스 스키마 생성
     const databaseSchema = await getDatabaseSchemaFromGPT(pdfText);
-    // console.log("Generated database schema:\n", databaseSchema);
-    const nestJsEntities = await generateNestJsEntityFromSQL(databaseSchema);
-    console.log("Generated NestJS entity classes:\n", nestJsEntities);
-    // 올바른 NestJS 엔티티 클래스를 추출합니다.
-    const entityClasses = nestJsEntities.match(
-      /import {[^}]+} from[^;]+;\n\n@Entity\(\)[\s\S]+?\n}/g
-    );
-
-    if (!entityClasses) {
-      throw new Error(
-        "Failed to extract entity classes from the generated NestJS entities."
-      );
+    // 추가된 부분: 데이터베이스 스키마를 SQL 파일로 저장
+    const dbSchemaPath = "./db_schema";
+    if (!fs.existsSync(dbSchemaPath)) {
+      fs.mkdirSync(dbSchemaPath);
     }
+    const sqlFileName = `${uuidv4()}.sql`;
+    const sqlFilePath = path.join(dbSchemaPath, sqlFileName);
+    fs.writeFileSync(sqlFilePath, databaseSchema);
+    console.log(`Saved database schema to ${sqlFilePath}`);
+    // const sqlFilePath = "./db_schema/5dd6fef1-e66d-4122-9878-2cd6f550da9f.sql";
+    // const name = "5dd6fef1-e66d-4122-9878-2cd6f550da9f";
+    await createCRUDFilesFromSQL(sqlFilePath, sqlFileName.split(".")[0]);
+    // await createCRUDFilesFromSQL(sqlFilePath, name);
+    // console.log("Generated database schema:\n", databaseSchema);
+    // const nestJsEntities = await generateNestJsEntityFromSQL(databaseSchema);
+    // console.log("Generated NestJS entity classes:\n", nestJsEntities);
+    // 올바른 NestJS 엔티티 클래스를 추출합니다.
+    // const entityClasses = nestJsEntities.match(
+    //   /import {[^}]+} from[^;]+;\n\n@Entity\(\)[\s\S]+?\n}/g
+    // );
 
-    await createEntityFiles(entityClasses);
+    // if (!entityClasses) {
+    //   throw new Error(
+    //     "Failed to extract entity classes from the generated NestJS entities."
+    //   );
+    // }
+
+    // await createEntityFiles(entityClasses);
   } catch (err: any) {
     console.error("err", err);
     console.error("err.data", err?.response?.data as any);
