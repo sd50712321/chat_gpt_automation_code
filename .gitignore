@@ -105,3 +105,6 @@ dist
 
 plan.pdf
 src
+api_src
+db_schema
+projects
